@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::InscriptionEvent;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 enum Curse {
@@ -23,6 +24,7 @@ pub(super) struct Flotsam {
 #[derive(Debug, Clone)]
 enum Origin {
   New {
+    prev_txn_outpoint: OutPoint,
     cursed: bool,
     fee: u64,
     hidden: bool,
@@ -64,6 +66,7 @@ pub(super) struct InscriptionUpdater<'a, 'db, 'tx> {
   pub(super) unbound_inscriptions: u64,
   pub(super) value_cache: &'a mut HashMap<OutPoint, u64>,
   pub(super) value_receiver: &'a mut Receiver<u64>,
+  pub(super) inscription_manager: InscriptionManager<'a, 'db, 'tx>,
 }
 
 impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
@@ -201,6 +204,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
           inscription_id,
           offset,
           origin: Origin::New {
+            prev_txn_outpoint: tx_in.previous_output,
             reinscription: inscribed_offsets.get(&offset).is_some(),
             cursed: curse.is_some(),
             fee: 0,
@@ -311,6 +315,30 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
     }
 
     for (new_satpoint, mut flotsam) in new_locations.into_iter() {
+      match flotsam.origin {
+        Origin::New {
+          prev_txn_outpoint, ..
+        } => {
+          self.inscription_manager.record_event(
+            tx.txid(),
+            InscriptionEvent::New {
+              prev_txn_outpoint,
+              inscription_id: flotsam.inscription_id,
+              satpoint: new_satpoint,
+            },
+          );
+        }
+        Origin::Old { old_satpoint } => {
+          self.inscription_manager.record_event(
+            tx.txid(),
+            InscriptionEvent::Transfer {
+              prev_satpoint: old_satpoint,
+              new_satpoint,
+              inscription_id: flotsam.inscription_id,
+            },
+          );
+        }
+      }
       let new_satpoint = match flotsam.origin {
         Origin::New {
           pointer: Some(pointer),
@@ -344,15 +372,14 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         self.update_inscription_location(input_sat_ranges, flotsam, new_satpoint)?;
       }
       self.lost_sats += self.reward - output_value;
-      Ok(())
     } else {
       self.flotsam.extend(inscriptions.map(|flotsam| Flotsam {
         offset: self.reward + flotsam.offset - output_value,
         ..flotsam
       }));
       self.reward += total_input_value - output_value;
-      Ok(())
     }
+    Ok(())
   }
 
   fn calculate_sat(
@@ -404,6 +431,7 @@ impl<'a, 'db, 'tx> InscriptionUpdater<'a, 'db, 'tx> {
         pointer: _,
         reinscription,
         unbound,
+        ..
       } => {
         let inscription_number = if cursed {
           let number: i32 = self.cursed_inscription_count.try_into().unwrap();

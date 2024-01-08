@@ -1,3 +1,9 @@
+use crate::protocol::brc20::{
+  BRC20InscriptionHandler, Tracker, BRC20_TOKEN_BALANCE_TABLE, BRC20_TRANSFER_TABLE,
+  BRC20_USER_BALANCE_TABLE,
+};
+use crate::protocol::handler::{Handler, InscriptionManager};
+use crate::protocol::storage::OUTPOINT_TO_ADDRESS_TABLE;
 use {
   self::{inscription_updater::InscriptionUpdater, rune_updater::RuneUpdater},
   super::{fetcher::Fetcher, *},
@@ -422,6 +428,22 @@ impl<'index> Updater<'_> {
 
     let home_inscription_count = home_inscriptions.len()?;
 
+    let mut brc20_user_balance_table = wtx.open_table(BRC20_USER_BALANCE_TABLE)?;
+    let mut brc20_token_balance_table = wtx.open_table(BRC20_TOKEN_BALANCE_TABLE)?;
+    let mut brc20_token_transfer_table = wtx.open_table(BRC20_TRANSFER_TABLE)?;
+
+    let bitrc20_handler = BRC20InscriptionHandler::new(Tracker::new(
+      &mut brc20_user_balance_table,
+      &mut brc20_token_balance_table,
+      &mut brc20_token_transfer_table,
+    ));
+    let mut outpoint_to_script_table = wtx.open_table(OUTPOINT_TO_ADDRESS_TABLE)?;
+
+    let inscription_manager = InscriptionManager::new_in_regtest(
+      &mut outpoint_to_script_table,
+      vec![Handler::BRC20(bitrc20_handler)],
+      block.txdata.clone().into_iter().map(|a| a.0).collect(),
+    );
     let mut inscription_updater = InscriptionUpdater {
       blessed_inscription_count,
       chain: self.index.options.chain(),
@@ -448,6 +470,7 @@ impl<'index> Updater<'_> {
       unbound_inscriptions,
       value_cache,
       value_receiver,
+      inscription_manager,
     };
 
     if self.index.index_sats {
@@ -574,6 +597,8 @@ impl<'index> Updater<'_> {
       &Statistic::UnboundInscriptions.key(),
       &inscription_updater.unbound_inscriptions,
     )?;
+
+    inscription_updater.inscription_manager.process()?;
 
     if index.index_runes && self.height >= self.index.options.first_rune_height() {
       let mut outpoint_to_rune_balances = wtx.open_table(OUTPOINT_TO_RUNE_BALANCES)?;

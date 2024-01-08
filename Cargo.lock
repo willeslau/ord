@@ -2199,6 +2199,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "test-bitcoincore-rpc",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tokio-util 0.7.10",

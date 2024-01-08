@@ -45,7 +45,7 @@ const SCHEMA_VERSION: u64 = 16;
 
 macro_rules! define_table {
   ($name:ident, $key:ty, $value:ty) => {
-    const $name: TableDefinition<$key, $value> = TableDefinition::new(stringify!($name));
+    pub const $name: TableDefinition<$key, $value> = TableDefinition::new(stringify!($name));
   };
 }
 

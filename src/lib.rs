@@ -129,6 +129,7 @@ mod inscriptions;
 mod object;
 mod options;
 mod outgoing;
+mod protocol;
 pub mod rarity;
 mod representation;
 pub mod runes;
